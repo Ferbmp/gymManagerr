@@ -3,7 +3,13 @@ const { date } = require('../../lib/utils')
 
 module.exports = {
     all(callback) {
-        db.query(`SELECT * FROM instructors`, function (err, results) {
+
+        db.query(`
+        SELECT instructors.*, count(members) AS total_students
+        FROM instructors
+        LEFT JOIN members ON (instructors.id = members.instructor_id)
+        GROUP BY instructors.id
+        ORDER BY total_students ASC`, function (err, results) {
 
             if (err) return res.send("Database error!")
             callback(results.rows)
@@ -32,22 +38,42 @@ module.exports = {
 
         db.query(query, values, function (err, results) {
 
-            if (err) return res.send("Database error!")
+            if (err) throw `Database Error! ${err}`
+
             callback(results.rows[0])
         })
     },
+
     find(id, callback) {
-        db.query(`
-        SELECT * FROM 
-        instructors 
-        WHERE id = $1`, [id], function(err, results) {
+        db.query(
+            `
+            SELECT * 
+            FROM "instructors"
+            WHERE id = $1`, [id], function (err, results) {
             if (err) throw `Database Error! ${err}`
-             callback(results.rows[0])
+            callback(results.rows[0]);
+        });
+    },
+
+    findBy(filter, callback) {
+        
+        db.query(`
+        SELECT instructors.*, count(members) AS total_students
+        FROM instructors
+        LEFT JOIN members ON (instructors.id = members.instructor_id)
+        WHERE instructors.name ILIKE '%${filter}%'
+        OR instructors.services ILIKE '%${filter}%'
+        GROUP BY instructors.id
+        ORDER BY total_students ASC`, function (err, results) {
+
+            if (err) return res.send("Database error!")
+            callback(results.rows)
         })
     },
+
     update(data, callback) {
         const query = `
-         UPDATE instructors SET 
+        UPDATE "instructors" SET
             avatar_url=($1),
             name=($2),
             birth=($3),
@@ -55,6 +81,7 @@ module.exports = {
             services=($5)
         WHERE id = $6
         `
+
         const values = [
             data.avatar_url,
             data.name,
@@ -63,10 +90,55 @@ module.exports = {
             data.services,
             data.id
         ]
-        db.query(query, values, function(err,results) {
+
+        db.query(query, values, function (err, results) {
             if (err) throw `Database Error! ${err}`
 
-            callback()
+            callback();
+        });
+    },
+
+    delete(id, callback) {
+        db.query(`DELETE FROM instructors WHERE id = $1`, [id], function (err, results) {
+            if (err) throw `Database Error! ${err}`;
+
+            return callback();
+        });
+    },
+    paginate(params){
+        const { filter, limit, offset, page, callback} = params
+
+        let query = "",
+            filterQuery = "",
+            totalQuery = `(
+                SELECT count(*) FROM instructors
+            ) AS total`
+
+
+        if(filter){
+            filterQuery = `${query}
+            WHERE instructors.name ILIKE '%${filter}%'
+            OR  instructors.services ILIKE '%${filter}%'
+            `
+
+            totalQuery = `(
+                SELECT count(*) FROM instructors
+                ${filterQuery}
+            ) AS total`
+        }
+
+        query = `
+        SELECT instructors.*,${totalQuery}, count(members) AS total_students
+        FROM instructors
+        LEFT JOIN members ON (instructors.id = members.instructor_id)
+        ${filterQuery}
+        GROUP BY instructors.id LIMIT $1 OFFSET $2
+        `
+
+        db.query(query, [limit, offset], function(err,results){
+            if (err) throw 'Database Error'
+
+            callback(results.rows)
         })
     }
 }
